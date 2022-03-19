@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "file-sorter": {
+      "commandName": "Project",
+      "commandLineArgs": "TestFile.txt"
+    }
+  }
+}
