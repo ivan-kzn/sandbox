@@ -24,7 +24,6 @@ namespace FileSorter
 
     public class ExternalMergeSortMergeOptions
     {
-        public int FilesPerRun { get; init; } = 5;
         public int MaxMemoryUsage { get; init; } = 1 * 1024 * 1024;
     }
 }

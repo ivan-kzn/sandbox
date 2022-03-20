@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection.Metadata;
+using System.Text;
 using System.Threading.Tasks;
 
 namespace FileSorter
@@ -54,21 +55,21 @@ namespace FileSorter
             {
                 var streamLength = sourceStream.Length;
                 var fileSize = streamLength / _options.Split.SplitFilesCount;
-                var currentFile = 0L;
+                var currentFileSize = 0L;
                 var counter = 0;
 
-                using (var sr = new StreamReader(sourceStream))
+                using (var sr = new StreamReader(sourceStream, Encoding.UTF8, true, 512))
                 {
                     while (!sr.EndOfStream)
                     {
                         var unsortedRecords = new List<Record>();
-                        while (currentFile < fileSize)
+                        while (currentFileSize < fileSize)
                         {
                             var line = sr.ReadLine();
                             if (!string.IsNullOrWhiteSpace(line))
                             {
                                 unsortedRecords.Add(line.ToRecord());
-                                currentFile += line.Length + 2;
+                                currentFileSize += line.Length + 2;
                             }
                             if (sr.EndOfStream)
                             {
@@ -78,7 +79,7 @@ namespace FileSorter
                         var filename = $"sorted{++counter}.dat";
                         var sortedFile = Path.Combine(_options.TempFileLocation, filename);
                         SortFile(unsortedRecords.ToArray(), sortedFile);
-                        currentFile = 0;
+                        currentFileSize = 0;
                         fileNames.Add(sortedFile);
                     }
                 }
@@ -92,11 +93,14 @@ namespace FileSorter
             var sortHelper = new SortHelper<Record>();
             sortHelper.MergeSort(unsortedRecords, 0, unsortedRecords.Length - 1);
 
-            using (var streamWriter = new StreamWriter(File.OpenWrite(sortedFile)))
+            using (var fs = File.OpenWrite(sortedFile))
             {
-                foreach (var row in unsortedRecords)
+                using (var streamWriter = new StreamWriter(fs, Encoding.UTF8, 512))
                 {
-                    streamWriter.WriteLine(row.ToString());
+                    foreach (var row in unsortedRecords)
+                    {
+                        streamWriter.WriteLine(row.ToString());
+                    }
                 }
             }
 
@@ -111,54 +115,49 @@ namespace FileSorter
             var readers = new StreamReader[chunks];
             try
             {
-                for (var i = 0; i < chunks; i++)
-                {
-                    readers[i] = new StreamReader(sortedFiles[i]);
-                }
-
                 var queues = new Queue<Record>[chunks];
                 for (var i = 0; i < chunks; i++)
                 {
+                    readers[i] = new StreamReader(sortedFiles[i], Encoding.UTF8, true, 512);
                     queues[i] = new Queue<Record>(bufferLength);
-                }
-
-                for (var i = 0; i < chunks; i++)
-                {
                     LoadQueue(queues[i], readers[i], bufferLength);
                 }
 
-                using (var sw = new StreamWriter(target))
+                using (var fs = File.OpenWrite(target))
                 {
-                    while (true)
+                    using (var sw = new StreamWriter(fs, Encoding.UTF8, 512))
                     {
-                        var lowestIndex = -1;
-                        var lowestValue = new Record();
-                        for (var j = 0; j < chunks; j++)
+                        while (true)
                         {
-                            if (queues[j] != null)
+                            var lowestIndex = -1;
+                            var lowestValue = new Record();
+                            for (var j = 0; j < chunks; j++)
                             {
-                                if (lowestIndex < 0 || queues[j].Peek().CompareTo(lowestValue) < 0)
+                                if (queues[j] != null)
                                 {
-                                    lowestIndex = j;
-                                    lowestValue = queues[j].Peek();
+                                    if (lowestIndex < 0 || queues[j].Peek().CompareTo(lowestValue) < 0)
+                                    {
+                                        lowestIndex = j;
+                                        lowestValue = queues[j].Peek();
+                                    }
                                 }
                             }
-                        }
 
-                        if (lowestIndex == -1)
-                        {
-                            break;
-                        }
+                            if (lowestIndex == -1)
+                            {
+                                break;
+                            }
 
-                        sw.WriteLine(lowestValue.ToString());
+                            sw.WriteLine(lowestValue.ToString());
 
-                        queues[lowestIndex].Dequeue();
-                        if (queues[lowestIndex].Count == 0)
-                        {
-                            LoadQueue(queues[lowestIndex], readers[lowestIndex], bufferLength);
+                            queues[lowestIndex].Dequeue();
                             if (queues[lowestIndex].Count == 0)
                             {
-                                queues[lowestIndex] = null;
+                                LoadQueue(queues[lowestIndex], readers[lowestIndex], bufferLength);
+                                if (queues[lowestIndex].Count == 0)
+                                {
+                                    queues[lowestIndex] = null;
+                                }
                             }
                         }
                     }
