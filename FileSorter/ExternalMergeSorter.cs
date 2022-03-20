@@ -1,8 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection.Metadata;
 using System.Threading.Tasks;
 
 namespace FileSorter
@@ -10,8 +12,6 @@ namespace FileSorter
     public class ExternalMergeSorter
     {
         private readonly ExternalMergeSorterOptions _options;
-        private long _testFileSize;
-        private long _recordsCount;
 
         public ExternalMergeSorter()
         {
@@ -28,11 +28,13 @@ namespace FileSorter
             {
                 var timer = new Stopwatch();
 
+                Console.WriteLine("Processing splitting and sorting files...");
                 timer.Start();
                 var sortedFiles = Split(filePath);
                 timer.Stop();
                 Console.WriteLine($"Splitting completed in {timer.Elapsed.TotalSeconds} seconds");
 
+                Console.WriteLine("Processing merging files...");
                 timer.Restart();
                 MergeTheChunks(sortedFiles, outputFileName);
                 timer.Stop();
@@ -46,95 +48,49 @@ namespace FileSorter
 
         private List<string> Split(string file)
         {
-            var extraBuffer = new List<byte>();
             var fileNames = new List<string>();
 
             using (var sourceStream = File.OpenRead(file))
             {
                 var streamLength = sourceStream.Length;
-                _testFileSize = streamLength;
                 var fileSize = streamLength / _options.Split.SplitFilesCount;
-                var totalLines = 0;
-                var buffer = new byte[fileSize];
                 var currentFile = 0L;
-                while (sourceStream.Position < streamLength)
+                var counter = 0;
+
+                using (var sr = new StreamReader(sourceStream))
                 {
-                    var runBytesRead = 0;
-                    while (runBytesRead < fileSize)
+                    while (!sr.EndOfStream)
                     {
-                        var value = sourceStream.ReadByte();
-                        if (value == -1)
+                        var unsortedRecords = new List<Record>();
+                        while (currentFile < fileSize)
                         {
-                            break;
+                            var line = sr.ReadLine();
+                            if (!string.IsNullOrWhiteSpace(line))
+                            {
+                                unsortedRecords.Add(line.ToRecord());
+                                currentFile += line.Length + 2;
+                            }
+                            if (sr.EndOfStream)
+                            {
+                                break;
+                            }
                         }
-
-                        var valueAsByte = (byte) value;
-                        buffer[runBytesRead] = valueAsByte;
-                        runBytesRead++;
-                        if (valueAsByte == _options.Split.NewLineSeparator)
-                        {
-                            totalLines++;
-                        }
+                        var filename = $"sorted{++counter}.dat";
+                        var sortedFile = Path.Combine(_options.TempFileLocation, filename);
+                        SortFile(unsortedRecords.ToArray(), sortedFile);
+                        currentFile = 0;
+                        fileNames.Add(sortedFile);
                     }
-
-                    var extraByte = buffer[fileSize - 1];
-
-                    while (extraByte != _options.Split.NewLineSeparator)
-                    {
-                        var value = sourceStream.ReadByte();
-                        if (value == -1)
-                        {
-                            break;
-                        }
-
-                        extraByte = (byte) value;
-                        extraBuffer.Add(extraByte);
-                    }
-
-                    var filename = $"chunk{++currentFile}.dat";
-                    var unsortedFile = Path.Combine(_options.TempFileLocation, filename);
-                    using (var fs = File.Create(unsortedFile))
-                    {
-                        fs.Write(buffer, 0, runBytesRead);
-                        if (extraBuffer.Count > 0)
-                        {
-                            totalLines++;
-                            fs.Write(extraBuffer.ToArray(), 0, extraBuffer.Count);
-                        }
-                    }
-
-                    var sortedFile = SortFile(unsortedFile, totalLines);
-                    fileNames.Add(sortedFile);
-
-                    _recordsCount += totalLines;
-                    totalLines = 0;
-                    extraBuffer.Clear();
                 }
 
                 return fileNames;
             }
         }
 
-        private string SortFile(string unsortedFile, int totalLines)
+        private void SortFile(Record[] unsortedRecords, string sortedFile)
         {
-            var unsortedRecords = new Record[totalLines];
-            var counter = 0;
-            using (var streamReader = new StreamReader(File.OpenRead(unsortedFile)))
-            {
-
-                while (!streamReader.EndOfStream)
-                {
-                    var line = streamReader.ReadLine();
-                    if (!string.IsNullOrWhiteSpace(line))
-                    {
-                        unsortedRecords[counter++] = line.ToRecord();
-                    }
-                }
-            }
-
-            var sortHelper = new Sorter<Record>();
+            var sortHelper = new SortHelper<Record>();
             sortHelper.MergeSort(unsortedRecords, 0, unsortedRecords.Length - 1);
-            var sortedFile = unsortedFile.Replace("chunk", "sorted");
 
             using (var streamWriter = new StreamWriter(File.OpenWrite(sortedFile)))
             {
@@ -145,17 +101,13 @@ namespace FileSorter
             }
 
             Array.Clear(unsortedRecords);
-            File.Delete(unsortedFile);
-            return sortedFile;
         }
 
         private void MergeTheChunks(IReadOnlyList<string> sortedFiles, string target)
         {
             var chunks = sortedFiles.Count;
-            var maxUsage = _testFileSize;
-            var recordLength = _options.Merge.RecordLength;
-            var bufferSize = maxUsage / chunks;
-            var bufferLength = (int)(bufferSize / recordLength / 10);
+            var maxUsage = _options.Merge.MaxMemoryUsage;
+            var bufferLength = maxUsage / chunks;
             var readers = new StreamReader[chunks];
             try
             {

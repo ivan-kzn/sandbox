@@ -19,15 +19,12 @@ namespace FileSorter
         /// <summary>
         /// Size of unsorted file (chunk) (in bytes)
         /// </summary>
-        public int SplitFilesCount { get; init; } = 30;
-        public char NewLineSeparator { get; init; } = '\n';
+        public int SplitFilesCount { get; init; } = 10;
     }
 
     public class ExternalMergeSortMergeOptions
     {
-        /// <summary>
-        /// Estimate record length
-        /// </summary>
-        public int RecordLength { get; init; } = 200;
+        public int FilesPerRun { get; init; } = 5;
+        public int MaxMemoryUsage { get; init; } = 1 * 1024 * 1024;
     }
 }
