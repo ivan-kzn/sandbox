@@ -51,14 +51,14 @@ namespace FileSorter
         {
             var fileNames = new List<string>();
 
-            using (var sourceStream = File.OpenRead(file))
+            using (var sourceStream = new FileStream(file, FileMode.Open, FileAccess.Read))
             {
                 var streamLength = sourceStream.Length;
                 var fileSize = streamLength / _options.Split.SplitFilesCount;
                 var currentFileSize = 0L;
                 var counter = 0;
 
-                using (var sr = new StreamReader(sourceStream, Encoding.UTF8, true, 512))
+                using (var sr = new StreamReader(sourceStream))
                 {
                     while (!sr.EndOfStream)
                     {
@@ -93,9 +93,9 @@ namespace FileSorter
             var sortHelper = new SortHelper<Record>();
             sortHelper.MergeSort(unsortedRecords, 0, unsortedRecords.Length - 1);
 
-            using (var fs = File.OpenWrite(sortedFile))
+            using (var fs = new FileStream(sortedFile, FileMode.OpenOrCreate, FileAccess.Write))
             {
-                using (var streamWriter = new StreamWriter(fs, Encoding.UTF8, 512))
+                using (var streamWriter = new StreamWriter(fs))
                 {
                     foreach (var row in unsortedRecords)
                     {
@@ -118,14 +118,14 @@ namespace FileSorter
                 var queues = new Queue<Record>[chunks];
                 for (var i = 0; i < chunks; i++)
                 {
-                    readers[i] = new StreamReader(sortedFiles[i], Encoding.UTF8, true, 512);
+                    readers[i] = new StreamReader(sortedFiles[i]);
                     queues[i] = new Queue<Record>(bufferLength);
                     LoadQueue(queues[i], readers[i], bufferLength);
                 }
 
-                using (var fs = File.OpenWrite(target))
+                using (var fs = new FileStream(target, FileMode.OpenOrCreate, FileAccess.Write))
                 {
-                    using (var sw = new StreamWriter(fs, Encoding.UTF8, 512))
+                    using (var sw = new StreamWriter(fs))
                     {
                         while (true)
                         {
